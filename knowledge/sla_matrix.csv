@@ -1,0 +1,5 @@
+tier,first_response_sla_hours,resolution_sla_hours,channels,named_am
+free,0,0,community forum,no
+pro,48,168,email,no
+business,8,48,email + chat,no
+enterprise,1,8,email + chat + phone + dedicated Slack,yes

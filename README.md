@@ -1,8 +1,5 @@
 # HelpDesk AI
 
-
-# HelpDesk AI
-
 A multi-agent customer support system built with CrewAI Flows.
 
 ## Setup
