@@ -28,6 +28,8 @@ from .models import (
     TriageDecision,
 )
 
+from .crews.triage_crew import TriageCrew
+
 load_dotenv()
 
 
@@ -88,7 +90,16 @@ class SupportFlow(Flow[SupportState]):
         priority, confidence, and whether a human is required. That
         decision then drives the @router below.
         """
-        decision = _mock_triage(ticket, self.state.customer)
+        result = TriageCrew().crew().kickoff(
+            inputs={
+                "subject": ticket.subject,
+                "description": ticket.description,
+                "customer_email": self.state.customer.email,
+                "customer_name": self.state.customer.name,
+                "tier": self.state.customer.tier.value,
+            }
+        )
+        decision: TriageDecision = result.pydantic
 
         self.state.triage = decision
         # Mirror triage into the ticket so downstream consumers don't
@@ -192,39 +203,6 @@ class SupportFlow(Flow[SupportState]):
 # Deterministic, rules-based stand-ins for the real triage and resolution
 # crews. The whole point is to exercise the flow skeleton without LLM
 # cost/latency — same flow, no API calls.
-
-def _mock_triage(ticket: Ticket, customer: Customer | None) -> TriageDecision:
-    """Rules-based triage."""
-    text = (ticket.subject + " " + ticket.description).lower()
-
-    if any(k in text for k in ("refund", "invoice", "charge", "billing", "quota")):
-        category = IssueCategory.BILLING
-    elif any(k in text for k in ("api", "token", "rate limit", "401", "403")):
-        category = IssueCategory.API
-    elif any(k in text for k in ("password", "login", "2fa", "can't access")):
-        category = IssueCategory.ACCOUNT
-    elif any(k in text for k in ("error", "fail", "sync", "crash", "slow")):
-        category = IssueCategory.TECHNICAL
-    else:
-        category = IssueCategory.GENERAL
-
-    # Tier-based priority nudge
-    if customer and customer.tier in {CustomerTier.BUSINESS, CustomerTier.ENTERPRISE}:
-        priority = TicketPriority.HIGH
-    elif any(k in text for k in ("urgent", "asap", "down", "broken")):
-        priority = TicketPriority.URGENT
-    else:
-        priority = TicketPriority.NORMAL
-
-    return TriageDecision(
-        category=category,
-        priority=priority,
-        confidence=0.78,
-        reasoning=f"Keyword match → {category.value}; tier-based priority → {priority.value}",
-        suggested_tags=[category.value, f"tier:{customer.tier.value}" if customer else "tier:free"],
-        needs_human=False,
-    )
-
 
 def _mock_resolution(ticket: Ticket, tone: str, confidence: float) -> ResolutionDraft:
     return ResolutionDraft(

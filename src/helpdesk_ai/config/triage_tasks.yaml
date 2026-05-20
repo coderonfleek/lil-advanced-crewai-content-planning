@@ -1,0 +1,35 @@
+classify_ticket:
+  description: >
+    Read the following support ticket and produce a structured triage decision.
+
+    --- TICKET ---
+    Subject: {subject}
+    Description: {description}
+
+    --- CUSTOMER ---
+    Email: {customer_email}
+    Name: {customer_name}
+    Plan tier: {tier}
+    ---
+
+    Steps:
+    1. Determine the issue CATEGORY from: billing, technical, account, api, general.
+    2. Determine the PRIORITY from: urgent, high, normal, low.
+       Factor in the plan tier: Business/Enterprise customers get at least `high`
+       unless the issue is trivial. Enterprise customers with production outages
+       get `urgent`.
+    3. Produce a confidence score [0.0–1.0] reflecting how sure you are. If the
+       ticket is ambiguous or could plausibly be two categories, score below 0.5.
+    4. Set `needs_human = true` if the ticket mentions legal threats, chargebacks,
+       data loss on an Enterprise account, suicidal or harmful content, or anything
+       else a human should review before the system responds.
+    5. Suggest 2-5 tags to apply to the Zendesk ticket.
+    6. Write a one-sentence `reasoning` explanation.
+
+    Ground your classification in the knowledge sources. If the ticket mentions
+    "quota exceeded" on Business tier for example, you should recognize that
+    as a documented known-issue pattern.
+  expected_output: >
+    A TriageDecision object with category, priority, confidence, reasoning,
+    suggested_tags, and needs_human populated.
+  agent: triage_specialist
