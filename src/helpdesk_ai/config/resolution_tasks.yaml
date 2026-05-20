@@ -1,0 +1,37 @@
+draft_response:
+  description: >
+    Draft a response to the following NimbusCloud customer ticket.
+
+    --- TICKET ---
+    Subject: {subject}
+    Description: {description}
+
+    --- CUSTOMER ---
+    Name: {customer_name}
+    Plan tier: {tier}
+    Past ticket count: {past_ticket_count}
+
+    --- TRIAGE CONTEXT ---
+    Category: {category}
+    Priority: {priority}
+    Tags: {tags}
+    ---
+
+    Your response MUST:
+    - Address the customer by name if available.
+    - Acknowledge the issue specifically — don't be generic.
+    - Give concrete actionable steps drawn from the NimbusCloud knowledge base.
+    - Set realistic expectations for any wait times (SLA aligned with their tier).
+    - Avoid making promises we can't keep ("we'll fix this in 24 hours").
+    - Cite the source document name for every factual claim.
+    - End with a clear next step.
+
+    If the issue is a billing refund request, defer to the billing specialist's
+    knowledge (refund windows, approval thresholds, credit-vs-refund playbook).
+
+    If you don't have enough information in the knowledge base to answer
+    confidently, set confidence below 0.7 and suggest escalation.
+  expected_output: >
+    A ResolutionDraft with response_text, citations (list of source document names),
+    confidence, and suggested_next_action.
+  agent: support_responder

@@ -29,6 +29,7 @@ from .models import (
 )
 
 from .crews.triage_crew import TriageCrew
+from .crews.resolution_crew import ResolutionCrew
 
 load_dotenv()
 
@@ -137,11 +138,8 @@ class SupportFlow(Flow[SupportState]):
     @listen("self_serve")
     def resolve_self_serve(self):
         """Generic/account issues. Cheap, fast, high-volume path."""        
-        self.state.resolution = _mock_resolution(
-            self.state.ticket,
-            tone="self-service",
-            confidence=0.85,
-        )
+        self.state.resolution = self._run_resolution_crew()
+
         self.state.trail.append("resolve: self_serve path")
         print("✅ Self-serve resolution drafted")
         return self.state.resolution
@@ -150,11 +148,8 @@ class SupportFlow(Flow[SupportState]):
     @listen("needs_agent")
     def resolve_with_specialist(self):
         """Billing/technical/API issues. Needs domain knowledge."""
-        self.state.resolution = _mock_resolution(
-            self.state.ticket,
-            tone="specialist",
-            confidence=0.78,
-        )
+        self.state.resolution = self._run_resolution_crew()
+
         self.state.trail.append(
             f"resolve: specialist path ({self.state.triage.category.value})"
         )
@@ -198,23 +193,28 @@ class SupportFlow(Flow[SupportState]):
         print(f"confidence={res.confidence:.2f}  next_action={res.suggested_next_action}")
         print("=" * 60)
         return self.state
+    
+    def _run_resolution_crew(self) -> ResolutionDraft:
+        """Kick off ResolutionCrew with full ticket + customer + triage context."""
+        result = (
+            ResolutionCrew()
+            .for_category(self.state.triage.category)
+            .crew()
+            .kickoff(
+                inputs={
+                    "subject": self.state.ticket.subject,
+                    "description": self.state.ticket.description,
+                    "customer_name": self.state.customer.name,
+                    "tier": self.state.customer.tier.value,
+                    "past_ticket_count": self.state.customer.past_ticket_count,
+                    "category": self.state.triage.category.value,
+                    "priority": self.state.triage.priority.value,
+                    "tags": ", ".join(self.state.triage.suggested_tags),
+                }
+            )
+        )
+        return result.pydantic
 
-# ─── Mock helpers ────────────────────────────────────────────────────
-# Deterministic, rules-based stand-ins for the real triage and resolution
-# crews. The whole point is to exercise the flow skeleton without LLM
-# cost/latency — same flow, no API calls.
-
-def _mock_resolution(ticket: Ticket, tone: str, confidence: float) -> ResolutionDraft:
-    return ResolutionDraft(
-        response_text=(
-            f"[{tone}] Thanks for reaching out about '{ticket.subject}'. "
-            f"We see this is a {ticket.category.value} issue and we're "
-            f"looking into it. We'll be in touch shortly with next steps."
-        ),
-        citations=[],
-        confidence=confidence,
-        suggested_next_action="await_customer_reply",
-    )
 
 
 def _type_from_category(category: IssueCategory) -> TicketType:
