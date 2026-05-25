@@ -11,6 +11,9 @@ draft_response:
     Plan tier: {tier}
     Past ticket count: {past_ticket_count}
 
+    --- CUSTOMER MEMORY ---
+    {customer_memory}
+
     --- TRIAGE CONTEXT ---
     Category: {category}
     Priority: {priority}
@@ -25,6 +28,11 @@ draft_response:
     - Avoid making promises we can't keep ("we'll fix this in 24 hours").
     - Cite the source document name for every factual claim.
     - End with a clear next step.
+
+    If the customer has previously contacted us about a similar issue
+    (see CUSTOMER MEMORY), acknowledge that history briefly — don't
+    pretend it's the first time we've talked. Skip the basics if they've
+    already been through them.
 
     If the issue is a billing refund request, defer to the billing specialist's
     knowledge (refund windows, approval thresholds, credit-vs-refund playbook).

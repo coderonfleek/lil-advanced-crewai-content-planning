@@ -33,6 +33,12 @@ from .crews.resolution_crew import ResolutionCrew
 
 from .crews import knowledge_debug  # noqa: F401 — auto-installs listener
 
+from .memory import (
+    build_support_memory,
+    load_customer_context,
+    remember_ticket_outcome,
+)
+
 load_dotenv()
 
 
@@ -59,6 +65,9 @@ DEFAULT_INTAKE = {
 class SupportFlow(Flow[SupportState]):
     """End-to-end support flow. Flow-first, not crew-first."""
 
+    def __init__(self, **kwargs):
+        super().__init__(memory=build_support_memory(), **kwargs)
+
     # ── Step 1: intake ──────────────────────────────────────────────
     @start()
     def intake(self):
@@ -80,8 +89,33 @@ class SupportFlow(Flow[SupportState]):
 
         self.state.customer = customer
         self.state.ticket = ticket
-        self.state.trail.append(f"intake: ticket {ticket.ticket_id} for {customer.email}")
-        print(f"📥 Intake: {ticket.ticket_id} — {customer.email} ({customer.tier.value})")
+
+        # ── Enrich the customer with memory ─────────
+        context = load_customer_context(self.memory, customer.email)
+        customer.past_ticket_count = len(context["history"])
+        # Stash the rest as loose preferences for downstream prompts
+        customer.preferences = {
+            "profile_facts": context["profile"],
+            "stated_preferences": context["preferences"],
+            "recent_history": context["history"],
+        }
+
+        enrichment_summary = (
+            f"loaded {len(context['profile'])} profile, "
+            f"{len(context['preferences'])} prefs, "
+            f"{len(context['history'])} history entries"
+        )
+        
+        # ── Enrichment end ───────────────────────── 
+
+
+        self.state.trail.append(
+            f"intake: ticket {ticket.ticket_id} for {customer.email} ({enrichment_summary})"
+        )
+        print(
+            f"📥 Intake: {ticket.ticket_id} — {customer.email} "
+            f"({customer.tier.value}) — {enrichment_summary}"
+        )
         return ticket
 
     # ── Step 2: triage ──────────────────────────────────────────────
@@ -186,7 +220,18 @@ class SupportFlow(Flow[SupportState]):
             return  # defensive; shouldn't happen
         res = self.state.resolution
         self.state.ticket.status = TicketStatus.PENDING
-        self.state.trail.append("respond: sent")
+
+        # Persist the outcome to memory so the NEXT kickoff for this
+        # customer can pick up where we left off.
+        remember_ticket_outcome(
+            memory=self.memory,
+            customer=self.state.customer,
+            ticket=self.state.ticket,
+            triage=self.state.triage,
+            resolution=res,
+        )
+
+        self.state.trail.append("respond: sent + memory persisted")
         print("\n" + "=" * 60)
         print("RESPONSE TO CUSTOMER")
         print("=" * 60)
@@ -198,6 +243,10 @@ class SupportFlow(Flow[SupportState]):
     
     def _run_resolution_crew(self) -> ResolutionDraft:
         """Kick off ResolutionCrew with full ticket + customer + triage context."""
+
+        prefs = self.state.customer.preferences or {}
+        memory_summary = self._build_memory_context_for_prompt(prefs)
+
         result = (
             ResolutionCrew()
             .for_category(self.state.triage.category)
@@ -209,6 +258,7 @@ class SupportFlow(Flow[SupportState]):
                     "customer_name": self.state.customer.name,
                     "tier": self.state.customer.tier.value,
                     "past_ticket_count": self.state.customer.past_ticket_count,
+                    "customer_memory": memory_summary,
                     "category": self.state.triage.category.value,
                     "priority": self.state.triage.priority.value,
                     "tags": ", ".join(self.state.triage.suggested_tags),
@@ -217,6 +267,19 @@ class SupportFlow(Flow[SupportState]):
         )
         return result.pydantic
 
+    @staticmethod
+    def _build_memory_context_for_prompt(prefs: dict) -> str:
+        """Flatten the customer preferences dict into a prompt-ready string."""
+        sections = []
+        for key, label in [
+            ("profile_facts", "Profile"),
+            ("stated_preferences", "Preferences"),
+            ("recent_history", "Recent tickets"),
+        ]:
+            entries = prefs.get(key) or []
+            if entries:
+                sections.append(f"{label}:\n  - " + "\n  - ".join(entries))
+        return "\n\n".join(sections) if sections else "(none — first interaction)"
 
 
 def _type_from_category(category: IssueCategory) -> TicketType:
