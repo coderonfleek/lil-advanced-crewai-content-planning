@@ -31,6 +31,8 @@ from .models import (
 from .crews.triage_crew import TriageCrew
 from .crews.resolution_crew import ResolutionCrew
 
+from .crews import knowledge_debug  # noqa: F401 — auto-installs listener
+
 load_dotenv()
 
 
