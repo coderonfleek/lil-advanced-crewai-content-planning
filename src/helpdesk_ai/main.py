@@ -35,6 +35,7 @@ from .crews import knowledge_debug  # noqa: F401 — auto-installs listener
 
 from .memory import (
     build_support_memory,
+    customer_memory_slice,
     load_customer_context,
     remember_ticket_outcome,
 )
@@ -250,6 +251,7 @@ class SupportFlow(Flow[SupportState]):
         result = (
             ResolutionCrew()
             .for_category(self.state.triage.category)
+            .with_memory(customer_memory_slice(self.memory, self.state.customer.email))
             .crew()
             .kickoff(
                 inputs={

@@ -56,10 +56,16 @@ class ResolutionCrew:
     # Set by `for_category()` before `.crew()` is built.
     # Defaults to GENERAL so the crew is still usable without it.
     category: IssueCategory = IssueCategory.GENERAL
+    memory_slice: object = None # set by `with_memory()`
 
     def for_category(self, category: IssueCategory) -> "ResolutionCrew":
         """Chainable setter. Billing → billing_specialist, else generalist."""
         self.category = category
+        return self
+
+    def with_memory(self, memory_slice) -> "ResolutionCrew":
+        """Chainable setter. Provides the customer-scoped memory slice."""
+        self.memory_slice = memory_slice
         return self
 
     # ── Crew-level knowledge (shared by every agent) ─────────────────
@@ -131,10 +137,13 @@ class ResolutionCrew:
 
     @crew
     def crew(self) -> Crew:
-        return Crew(
+        crew_kwargs = dict(
             agents=self.agents,
             tasks=self.tasks,
             process=Process.sequential,
             knowledge_sources=self.knowledge_sources,
             verbose=True,
         )
+        if self.memory_slice is not None:
+            crew_kwargs["memory"] = self.memory_slice
+        return Crew(**crew_kwargs)

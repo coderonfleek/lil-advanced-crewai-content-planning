@@ -144,6 +144,19 @@ def remember_ticket_outcome(
         importance=0.6,  # history is what intake-enrichment reads, so bump it
     )
 
+def customer_memory_slice(memory: Memory, email: str):
+    """Return a read-only MemorySlice scoped to one customer's tree.
+
+    Pass the result as `memory=` to a Crew that should be able to
+    recall the customer's history but not write to the memory store.
+    Writes still happen at flow boundaries via `remember_ticket_outcome`.
+    """
+    return memory.slice(
+        scopes=[customer_scope(email)],
+        read_only=True,
+    )
+
+
 
 __all__ = [
     "Memory",
@@ -152,6 +165,7 @@ __all__ = [
     "customer_scope",
     "ticket_scope",
     "company_scope",
+    "customer_memory_slice",
     "load_customer_context",
     "remember_ticket_outcome",
 ]
