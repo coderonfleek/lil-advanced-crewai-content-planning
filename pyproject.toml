@@ -8,6 +8,7 @@ authors = [{ name = "CrewAI Student" }]
 dependencies = [
     "crewai>=0.95.0",
     "crewai-tools>=0.25.0",
+    "mcp>=1.26.0",
     "pydantic>=2.5.0",
     "python-dotenv>=1.0.0",
 ]

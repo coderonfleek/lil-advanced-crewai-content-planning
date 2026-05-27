@@ -33,6 +33,8 @@ from .crews.resolution_crew import ResolutionCrew
 
 from .crews import knowledge_debug  # noqa: F401 — auto-installs listener
 
+from .integrations import build_dispatcher
+
 from .memory import (
     build_support_memory,
     customer_memory_slice,
@@ -68,6 +70,7 @@ class SupportFlow(Flow[SupportState]):
 
     def __init__(self, **kwargs):
         super().__init__(memory=build_support_memory(), **kwargs)
+        self._dispatcher = build_dispatcher()
 
     # ── Step 1: intake ──────────────────────────────────────────────
     @start()
@@ -222,6 +225,22 @@ class SupportFlow(Flow[SupportState]):
         res = self.state.resolution
         self.state.ticket.status = TicketStatus.PENDING
 
+        # Sync to Zendesk first. The ID returned is mirrored onto the ticket.
+        zendesk_id = self._dispatcher.create_or_update_zendesk_ticket(
+            flow_state_id=str(self.state.id),
+            customer=self.state.customer,
+            ticket=self.state.ticket,
+            triage=self.state.triage,
+        )
+        self.state.ticket.zendesk_id = zendesk_id
+
+        # Post the drafted response as a public comment.
+        self._dispatcher.add_zendesk_comment(
+            zendesk_id=zendesk_id,
+            body=res.response_text,
+            is_public=True,
+        )
+
         # Persist the outcome to memory so the NEXT kickoff for this
         # customer can pick up where we left off.
         remember_ticket_outcome(
@@ -232,9 +251,9 @@ class SupportFlow(Flow[SupportState]):
             resolution=res,
         )
 
-        self.state.trail.append("respond: sent + memory persisted")
+        self.state.trail.append(f"respond: sent + zendesk:{zendesk_id} + memory persisted")
         print("\n" + "=" * 60)
-        print("RESPONSE TO CUSTOMER")
+        print(f"RESPONSE TO CUSTOMER (Zendesk #{zendesk_id})")
         print("=" * 60)
         print(res.response_text)
         print("-" * 60)
