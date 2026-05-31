@@ -241,6 +241,14 @@ class SupportFlow(Flow[SupportState]):
             is_public=True,
         )
 
+        self._dispatcher.notify_slack(
+            customer=self.state.customer,
+            ticket=self.state.ticket,
+            triage=self.state.triage,
+            resolution=res,
+            zendesk_id=zendesk_id,
+        )
+
         # Persist the outcome to memory so the NEXT kickoff for this
         # customer can pick up where we left off.
         remember_ticket_outcome(
@@ -251,7 +259,7 @@ class SupportFlow(Flow[SupportState]):
             resolution=res,
         )
 
-        self.state.trail.append(f"respond: sent + zendesk:{zendesk_id} + memory persisted")
+        self.state.trail.append(f"respond: sent + zendesk:{zendesk_id} + slack + memory persisted")
         print("\n" + "=" * 60)
         print(f"RESPONSE TO CUSTOMER (Zendesk #{zendesk_id})")
         print("=" * 60)

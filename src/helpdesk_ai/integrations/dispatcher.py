@@ -19,10 +19,54 @@ import os
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from . import mcp_zendesk_mock
+from . import mcp_slack_mock, mcp_zendesk_mock
 
 if TYPE_CHECKING:
-    from ..models import Customer, ResolutionDraft, Ticket, TriageDecision
+    from ..models import (
+        Customer, CustomerTier, ResolutionDraft, Ticket,
+        TicketPriority, TriageDecision,
+    )
+
+
+# ─── Channel routing + message formatting ───────────────────────────
+
+def _choose_slack_channel(customer, triage) -> str:
+    """Pick the Slack channel for a notification.
+
+    Order matters: VIP takes precedence over escalation; escalation
+    takes precedence over default triage.
+    """
+    # Import here to avoid forward-reference issues at module load time
+    from ..models import CustomerTier, TicketPriority
+
+    if customer.tier == CustomerTier.ENTERPRISE:
+        return os.getenv("SLACK_CHANNEL_VIP", "#support-vip")
+    if triage.needs_human or triage.priority == TicketPriority.URGENT:
+        return os.getenv("SLACK_CHANNEL_ESCALATION", "#support-escalations")
+    return os.getenv("SLACK_CHANNEL_TRIAGE", "#support-triage")
+
+
+def _format_slack_notification(
+    *, customer, ticket, triage, resolution, zendesk_id: str
+) -> str:
+    """Format a Slack mrkdwn notification message.
+
+    All fields come from typed state — no LLM, no creativity. Deterministic.
+    """
+    citations = ", ".join(resolution.citations) if resolution.citations else "(none)"
+    zendesk_link = (
+        f"<https://nimbuscloud.zendesk.example/tickets/{zendesk_id}|#{zendesk_id}>"
+    )
+    return (
+        f":ticket: *Ticket #{zendesk_id}* — `{triage.category.value}` / "
+        f"`{triage.priority.value}` (confidence {triage.confidence:.2f})\n"
+        f"*Customer*: {customer.email} ({customer.tier.value})\n"
+        f"*Subject*: {ticket.subject}\n"
+        f"*Triage*: {triage.reasoning}\n"
+        f"*Drafted response confidence*: {resolution.confidence:.2f}\n"
+        f"*Citations*: {citations}\n"
+        f"*Zendesk*: {zendesk_link}"
+    )
 
 
 # ─── Abstract base ──────────────────────────────────────────────────
@@ -94,14 +138,21 @@ class LocalDispatcher(IntegrationDispatcher):
     def notify_slack(
         self,
         *,
-        customer: "Customer",
-        ticket: "Ticket",
-        triage: "TriageDecision",
-        resolution: "ResolutionDraft",
+        customer,
+        ticket,
+        triage,
+        resolution,
         zendesk_id: str,
     ) -> None:
-        # Slack notification implemented in a later lesson.
-        raise NotImplementedError("Slack notification arrives later in this chapter")
+        channel = _choose_slack_channel(customer, triage)
+        text = _format_slack_notification(
+            customer=customer,
+            ticket=ticket,
+            triage=triage,
+            resolution=resolution,
+            zendesk_id=zendesk_id,
+        )
+        mcp_slack_mock.send_message(channel=channel, text=text)
 
 
 # ─── Factory ────────────────────────────────────────────────────────
