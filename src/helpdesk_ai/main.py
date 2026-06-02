@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dotenv import load_dotenv
 
-from crewai.flow.flow import Flow, listen, or_, router, start
+from crewai.flow.flow import Flow, listen, or_, and_, router, start
 
 from .models import (
     Customer,
@@ -216,17 +216,27 @@ class SupportFlow(Flow[SupportState]):
     # ── Step 5: respond ─────────────────────────────────────────────
     @listen(or_(resolve_self_serve, resolve_with_specialist, escalate_to_human))
     def respond(self):
-        """Send the response — whichever resolution path fired above.
-
-        `or_(...)` is the idiomatic way to fan multiple upstream methods
-        into a single downstream step.
-        """
+        """Mark the resolution ready and signal downstream fan-out."""
         if not self.state.resolution:
-            return  # defensive; shouldn't happen
+            return
         res = self.state.resolution
         self.state.ticket.status = TicketStatus.PENDING
+        self.state.trail.append("respond: ready for fan-out")
+        print("\n" + "=" * 60)
+        print("RESPONSE DRAFTED")
+        print("=" * 60)
+        print(res.response_text)
+        print("-" * 60)
+        print(f"confidence={res.confidence:.2f}  next_action={res.suggested_next_action}")
+        print("=" * 60)
+        return "ready"
 
-        # Sync to Zendesk first. The ID returned is mirrored onto the ticket.
+    @listen(respond)
+    def sync_to_zendesk(self) -> str:
+        """Sync the ticket to Zendesk and post the agent's draft as a comment."""
+        if not self.state.resolution:
+            return ""
+        res = self.state.resolution
         zendesk_id = self._dispatcher.create_or_update_zendesk_ticket(
             flow_state_id=str(self.state.id),
             customer=self.state.customer,
@@ -234,41 +244,45 @@ class SupportFlow(Flow[SupportState]):
             triage=self.state.triage,
         )
         self.state.ticket.zendesk_id = zendesk_id
-
-        # Post the drafted response as a public comment.
         self._dispatcher.add_zendesk_comment(
             zendesk_id=zendesk_id,
             body=res.response_text,
             is_public=True,
         )
+        self.state.trail.append(f"sync_to_zendesk: zendesk:{zendesk_id}")
+        return zendesk_id
 
-        self._dispatcher.notify_slack(
-            customer=self.state.customer,
-            ticket=self.state.ticket,
-            triage=self.state.triage,
-            resolution=res,
-            zendesk_id=zendesk_id,
-        )
-
-        # Persist the outcome to memory so the NEXT kickoff for this
-        # customer can pick up where we left off.
+    @listen(respond)
+    def persist_to_memory(self) -> str:
+        """Persist the ticket outcome to memory for future kickoffs."""
+        if not self.state.resolution:
+            return ""
         remember_ticket_outcome(
             memory=self.memory,
             customer=self.state.customer,
             ticket=self.state.ticket,
             triage=self.state.triage,
-            resolution=res,
+            resolution=self.state.resolution,
         )
+        self.state.trail.append("persist_to_memory: written")
+        return "persisted"
 
-        self.state.trail.append(f"respond: sent + zendesk:{zendesk_id} + slack + memory persisted")
-        print("\n" + "=" * 60)
-        print(f"RESPONSE TO CUSTOMER (Zendesk #{zendesk_id})")
-        print("=" * 60)
-        print(res.response_text)
-        print("-" * 60)
-        print(f"confidence={res.confidence:.2f}  next_action={res.suggested_next_action}")
-        print("=" * 60)
+    @listen(and_(sync_to_zendesk, persist_to_memory))
+    def notify_slack(self):
+        """Notify the right Slack channel — runs only after both upstream steps."""
+        if not self.state.resolution or not self.state.ticket.zendesk_id:
+            return
+        self._dispatcher.notify_slack(
+            customer=self.state.customer,
+            ticket=self.state.ticket,
+            triage=self.state.triage,
+            resolution=self.state.resolution,
+            zendesk_id=self.state.ticket.zendesk_id,
+        )
+        self.state.trail.append(f"notify_slack: zendesk:{self.state.ticket.zendesk_id}")
+        print(f"📣 Slack notified for ticket #{self.state.ticket.zendesk_id}")
         return self.state
+    
     
     def _run_resolution_crew(self) -> ResolutionDraft:
         """Kick off ResolutionCrew with full ticket + customer + triage context."""
