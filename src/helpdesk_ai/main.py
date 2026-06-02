@@ -71,6 +71,7 @@ class SupportFlow(Flow[SupportState]):
     def __init__(self, **kwargs):
         super().__init__(memory=build_support_memory(), **kwargs)
         self._dispatcher = build_dispatcher()
+        print(f"🔌 Dispatcher: {type(self._dispatcher).__name__}")
 
     # ── Step 1: intake ──────────────────────────────────────────────
     @start()
